@@ -197,7 +197,7 @@ pub(crate) fn build_bitmap_font(
     bitmap_data: &[u8],
 ) -> Result<YaffFont, ParseError> {
     let expected = glyph_count * bytes_per_glyph;
-    if bitmap_data.len() != expected {
+    if bitmap_data.len() < expected {
         return Err(ParseError::SemanticError {
             line: 0,
             message: format!(
