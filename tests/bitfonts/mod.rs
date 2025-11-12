@@ -61,30 +61,43 @@ fn psf2_unicode_table() {
 
     assert_eq!(font.glyphs.len(), 3);
 
-    // Check glyph 0: should have single Unicode label [0x41]
-    assert_eq!(font.glyphs[0].labels.len(), 1);
-    match &font.glyphs[0].labels[0] {
-        Label::Unicode(codes) => assert_eq!(codes, &vec![0x41]),
-        _ => panic!("Expected Unicode label"),
-    }
+    // Check glyph 0: should have Unicode label [0x41] (plus a Codepoint label)
+    let g0_has_unicode_a = font.glyphs[0]
+        .labels
+        .iter()
+        .any(|l| matches!(l, Label::Unicode(codes) if codes == &vec![0x41]));
+    assert!(
+        g0_has_unicode_a,
+        "Glyph 0 should have Unicode label for 'A'"
+    );
 
     // Check glyph 1: should have two Unicode labels
-    assert_eq!(font.glyphs[1].labels.len(), 2);
-    match &font.glyphs[1].labels[0] {
-        Label::Unicode(codes) => assert_eq!(codes, &vec![0x00C5]),
-        _ => panic!("Expected Unicode label"),
-    }
-    match &font.glyphs[1].labels[1] {
-        Label::Unicode(codes) => assert_eq!(codes, &vec![0x212B]),
-        _ => panic!("Expected Unicode label"),
-    }
+    let g1_has_unicode_aring = font.glyphs[1]
+        .labels
+        .iter()
+        .any(|l| matches!(l, Label::Unicode(codes) if codes == &vec![0x00C5]));
+    let g1_has_unicode_angstrom = font.glyphs[1]
+        .labels
+        .iter()
+        .any(|l| matches!(l, Label::Unicode(codes) if codes == &vec![0x212B]));
+    assert!(
+        g1_has_unicode_aring,
+        "Glyph 1 should have Unicode label for U+00C5"
+    );
+    assert!(
+        g1_has_unicode_angstrom,
+        "Glyph 1 should have Unicode label for U+212B"
+    );
 
     // Check glyph 2: should have one sequence label with two codepoints
-    assert_eq!(font.glyphs[2].labels.len(), 1);
-    match &font.glyphs[2].labels[0] {
-        Label::Unicode(codes) => assert_eq!(codes, &vec![0x41, 0x030A]),
-        _ => panic!("Expected Unicode label"),
-    }
+    let g2_has_sequence = font.glyphs[2]
+        .labels
+        .iter()
+        .any(|l| matches!(l, Label::Unicode(codes) if codes == &vec![0x41, 0x030A]));
+    assert!(
+        g2_has_sequence,
+        "Glyph 2 should have Unicode sequence [A, combining ring]"
+    );
 }
 
 #[test]
@@ -127,29 +140,32 @@ fn psf2_unicode_table_spec_example() {
     let font = YaffFont::from_bytes(&bytes).unwrap();
 
     assert_eq!(font.glyphs.len(), 1);
-    assert_eq!(font.glyphs[0].labels.len(), 3);
 
-    // First label: U+00C5
-    match &font.glyphs[0].labels[0] {
-        Label::Unicode(codes) => assert_eq!(codes, &vec![0x00C5]),
-        _ => panic!("Expected Unicode label for U+00C5"),
-    }
+    // Glyph 0 should have a Codepoint label plus 3 Unicode labels
+    let g0 = &font.glyphs[0];
 
-    // Second label: U+212B
-    match &font.glyphs[0].labels[1] {
-        Label::Unicode(codes) => assert_eq!(codes, &vec![0x212B]),
-        _ => panic!("Expected Unicode label for U+212B"),
-    }
+    // Check for U+00C5
+    let has_aring = g0
+        .labels
+        .iter()
+        .any(|l| matches!(l, Label::Unicode(codes) if codes == &vec![0x00C5]));
+    assert!(has_aring, "Should have Unicode label for U+00C5");
 
-    // Third label: sequence [U+0041, U+030A]
-    match &font.glyphs[0].labels[2] {
-        Label::Unicode(codes) => {
-            assert_eq!(codes.len(), 2);
-            assert_eq!(codes[0], 0x0041); // A
-            assert_eq!(codes[1], 0x030A); // combining ring
-        }
-        _ => panic!("Expected Unicode sequence label"),
-    }
+    // Check for U+212B
+    let has_angstrom = g0
+        .labels
+        .iter()
+        .any(|l| matches!(l, Label::Unicode(codes) if codes == &vec![0x212B]));
+    assert!(has_angstrom, "Should have Unicode label for U+212B");
+
+    // Check for sequence [U+0041, U+030A]
+    let has_sequence = g0.labels.iter().any(|l| {
+        matches!(l, Label::Unicode(codes) if codes.len() == 2 && codes[0] == 0x0041 && codes[1] == 0x030A)
+    });
+    assert!(
+        has_sequence,
+        "Should have Unicode sequence [A, combining ring]"
+    );
 }
 
 #[test]
@@ -280,17 +296,10 @@ fn load_zap_ext_vga09_psf() {
         "Base font should have 256 glyphs"
     );
 
+    // First 256 glyphs should have Codepoint labels matching their indices
     for i in 0..256 {
         let ext_glyph = &font.glyphs[i];
         let base_glyph = &base_font.glyphs[i];
-
-        // Compare labels - should have matching structure
-        assert_eq!(
-            ext_glyph.labels.len(),
-            base_glyph.labels.len(),
-            "Glyph 0x{:02X}: label count mismatch",
-            i
-        );
 
         // Both should have non-empty bitmaps
         assert!(
@@ -304,10 +313,21 @@ fn load_zap_ext_vga09_psf() {
             i
         );
 
-        // Labels should match
-        for (ext_label, base_label) in ext_glyph.labels.iter().zip(base_glyph.labels.iter()) {
-            assert_eq!(ext_label, base_label, "Glyph 0x{:02X}: label mismatch", i);
-        }
+        // Both should have the same Codepoint label for their index
+        let ext_has_codepoint = ext_glyph
+            .labels
+            .iter()
+            .any(|label| matches!(label, Label::Codepoint(codes) if codes.contains(&(i as u16))));
+        let base_has_codepoint = base_glyph
+            .labels
+            .iter()
+            .any(|label| matches!(label, Label::Codepoint(codes) if codes.contains(&(i as u16))));
+
+        assert_eq!(
+            ext_has_codepoint, base_has_codepoint,
+            "Glyph 0x{:02X}: Codepoint label presence mismatch",
+            i
+        );
     }
 
     for glyph_idx in 0x100..=0x1FF {

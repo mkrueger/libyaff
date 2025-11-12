@@ -3,6 +3,9 @@ use crate::{Label, ParseError, YaffFont};
 
 pub(crate) const PSF1_MAGIC: u16 = 0x0436;
 const PSF1_MODE512: u8 = 0x01;
+const PSF1_MODEHASTAB: u8 = 0x02;
+const PSF1_STARTSEQ: u16 = 0xFFFE;
+const PSF1_SEPARATOR: u16 = 0xFFFF;
 
 pub(crate) const PSF2_MAGIC: u32 = 0x864A_B572;
 const PSF2_MAX_VERSION: u32 = 0;
@@ -42,10 +45,92 @@ pub(crate) fn parse_psf1(bytes: &[u8]) -> Result<YaffFont, ParseError> {
 
     let mode = bytes[2];
     let char_size = bytes[3] as usize;
+    if char_size == 0 {
+        return Err(semantic("PSF1: zero charsize not allowed"));
+    }
     let glyph_count = if mode & PSF1_MODE512 != 0 { 512 } else { 256 };
     let bitmap_bytes = &bytes[4..];
 
-    build_bitmap_font(8, char_size, glyph_count, char_size, bitmap_bytes)
+    let bitmap_data_len = glyph_count * char_size;
+    if bitmap_bytes.len() < bitmap_data_len {
+        return Err(ParseError::UnexpectedEndOfInput);
+    }
+
+    let mut font = build_bitmap_font(
+        8,
+        char_size,
+        glyph_count,
+        char_size,
+        &bitmap_bytes[..bitmap_data_len],
+    )?;
+
+    // Parse PSF1 Unicode table if present
+    if mode & PSF1_MODEHASTAB != 0 && bitmap_bytes.len() > bitmap_data_len {
+        let unicode_table = &bitmap_bytes[bitmap_data_len..];
+        parse_psf1_unicode_table(&mut font, unicode_table, glyph_count)?;
+    }
+
+    Ok(font)
+}
+
+/// Parse PSF1 Unicode table (16-bit code units).
+/// Format per glyph:
+///   <uc>* <seq>* <term>
+///   <seq> := PSF1_STARTSEQ <uc><uc>*
+///   <term> := PSF1_SEPARATOR
+fn parse_psf1_unicode_table(
+    font: &mut YaffFont,
+    table_data: &[u8],
+    glyph_count: usize,
+) -> Result<(), ParseError> {
+    let mut pos = 0;
+    let mut glyph_idx = 0;
+
+    while glyph_idx < glyph_count && pos < table_data.len() {
+        let mut labels: Vec<Label> = Vec::new();
+        let mut current_sequence: Option<Vec<u32>> = None;
+
+        // Parse entries for this glyph until we hit separator
+        while pos + 2 <= table_data.len() {
+            let val = u16::from_le_bytes([table_data[pos], table_data[pos + 1]]);
+            pos += 2;
+
+            if val == PSF1_SEPARATOR {
+                // End of glyph description
+                if let Some(seq) = current_sequence.take() {
+                    if !seq.is_empty() {
+                        labels.push(Label::Unicode(seq));
+                    }
+                }
+                break;
+            } else if val == PSF1_STARTSEQ {
+                // Start of a new sequence
+                if let Some(seq) = current_sequence.take() {
+                    if !seq.is_empty() {
+                        labels.push(Label::Unicode(seq));
+                    }
+                }
+                current_sequence = Some(Vec::<u32>::new());
+            } else {
+                // Regular codepoint
+                let cp = val as u32;
+                if let Some(seq) = current_sequence.as_mut() {
+                    seq.push(cp);
+                } else {
+                    labels.push(Label::Unicode(vec![cp]));
+                }
+            }
+        }
+
+        // FIX: Use extend to preserve existing Codepoint labels
+        if !labels.is_empty() {
+            font.glyphs[glyph_idx].labels.extend(labels);
+        }
+
+        glyph_idx += 1;
+    }
+
+    Ok(())
 }
 
 pub(crate) fn parse_psf2(bytes: &[u8]) -> Result<YaffFont, ParseError> {
@@ -65,16 +150,29 @@ pub(crate) fn parse_psf2(bytes: &[u8]) -> Result<YaffFont, ParseError> {
         ));
     }
     let header_size = u32::from_le_bytes(bytes[8..12].try_into().unwrap()) as usize;
+    if header_size < 32 {
+        return Err(semantic(format!("PSF2: invalid header_size {header_size} (<32)")));
+    }
     let flags = u32::from_le_bytes(bytes[12..16].try_into().unwrap());
     let glyph_count = u32::from_le_bytes(bytes[16..20].try_into().unwrap()) as usize;
     let char_size = u32::from_le_bytes(bytes[20..24].try_into().unwrap()) as usize;
+    
     let height = u32::from_le_bytes(bytes[24..28].try_into().unwrap()) as usize;
     let width = u32::from_le_bytes(bytes[28..32].try_into().unwrap()) as usize;
 
+    let bytes_per_row = (width + 7) / 8;
+    let expected_char_size = height * bytes_per_row;
+    if expected_char_size != char_size {
+        return Err(semantic(format!(
+            "PSF2: char_size mismatch, header {char_size}, computed {expected_char_size}"
+        )));
+    }
+
     let bitmap_region = &bytes[header_size..];
     let bitmap_data_len = glyph_count * char_size;
+    let bitmap_end = header_size + glyph_count * char_size;
 
-    if bitmap_region.len() < bitmap_data_len {
+    if bitmap_region.len() < bitmap_data_len || bitmap_end > bytes.len() {
         return Err(ParseError::UnexpectedEndOfInput);
     }
 
@@ -88,10 +186,12 @@ pub(crate) fn parse_psf2(bytes: &[u8]) -> Result<YaffFont, ParseError> {
 
     // Parse Unicode table if present
     if flags & PSF2_HAS_UNICODE_TABLE != 0 {
-        println!("Parsing PSF2 Unicode table...");
-        let unicode_table_start = header_size + bitmap_data_len;
-        if unicode_table_start < bytes.len() {
-            parse_psf2_unicode_table(&mut font, &bytes[unicode_table_start..])?;
+        // Remove debug print
+        // println!("Parsing PSF2 Unicode table...");
+
+        // FIX: Unicode table starts after bitmap data WITHIN bitmap_region
+        if bitmap_data_len < bitmap_region.len() {
+            parse_psf2_unicode_table(&mut font, &bitmap_region[bitmap_data_len..])?;
         }
     }
 
@@ -151,9 +251,9 @@ fn parse_psf2_unicode_table(font: &mut YaffFont, table_data: &[u8]) -> Result<()
             }
         }
 
-        // Update the glyph with parsed labels if any were found
+        // FIX: EXTEND labels, don't replace them - preserve Codepoint labels
         if !labels.is_empty() {
-            font.glyphs[glyph_idx].labels = labels;
+            font.glyphs[glyph_idx].labels.extend(labels);
         }
 
         glyph_idx += 1;
@@ -316,30 +416,16 @@ pub fn to_psf2_bytes(font: &YaffFont) -> Result<Vec<u8>, ParseError> {
     // Write Unicode table if needed
     if has_unicode_labels {
         for glyph in &ordered_glyphs {
-            // Write single Unicode values (not in sequences)
             for label in &glyph.labels {
                 if let Label::Unicode(codes) = label {
                     if codes.len() == 1 {
-                        // Single Unicode value
                         write_utf8_codepoint(&mut data, codes[0]);
-                    }
-                }
-            }
-
-            // Write sequences (Unicode labels with multiple codepoints)
-            for label in &glyph.labels {
-                if let Label::Unicode(codes) = label {
-                    if codes.len() > 1 {
-                        // Sequence
+                    } else {
                         data.push(PSF2_STARTSEQ);
-                        for &codepoint in codes {
-                            write_utf8_codepoint(&mut data, codepoint);
-                        }
+                        for c in codes { write_utf8_codepoint(&mut data, *c); }
                     }
                 }
             }
-
-            // Write separator
             data.push(PSF2_SEPARATOR);
         }
     }
