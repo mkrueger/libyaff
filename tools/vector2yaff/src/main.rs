@@ -1,6 +1,6 @@
-use freetype::face::LoadFlag;
 use freetype::Library;
-use libyaff::{to_yaff_string, Bitmap, GlyphDefinition, Label, YaffFont};
+use freetype::face::LoadFlag;
+use libyaff::{Bitmap, GlyphDefinition, Label, YaffFont, to_yaff_string};
 use std::collections::HashMap;
 use std::error::Error;
 use std::fs::File;
@@ -176,7 +176,7 @@ pub fn convert_font_to_yaff(
         // append_metric(&mut yaff_content, "top-bearing", ascender - bitmap_top);
         let bitmap_top = ft_glyph.bitmap_top();
         glyph_def.top_bearing = Some(font.ascent.unwrap() - bitmap_top);
-        
+
         // Calculate shift-up for compatibility: baseline to raster bottom edge
         let bitmap_bottom = bitmap_top - rows as i32;
         glyph_def.shift_up = Some(bitmap_bottom);

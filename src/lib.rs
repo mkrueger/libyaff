@@ -52,6 +52,10 @@ mod encoder;
 mod models;
 #[cfg(feature = "parsing")]
 mod parser;
+#[cfg(feature = "bitfonts")]
+pub mod psf;
+#[cfg(feature = "bitfonts")]
+pub mod raw;
 mod utils;
 
 #[cfg(feature = "encoding")]
@@ -69,6 +73,9 @@ use std::fs::File;
 use std::io::BufReader;
 #[cfg(feature = "parsing")]
 use std::path::Path;
+
+#[cfg(feature = "bitfonts")]
+pub use psf::to_psf2_bytes;
 
 impl YaffFont {
     pub fn new() -> Self {
@@ -90,11 +97,34 @@ impl FromStr for YaffFont {
 
 #[cfg(feature = "parsing")]
 impl YaffFont {
+    #[cfg(feature = "bitfonts")]
+    pub fn from_raw_bytes(bytes: &[u8], width: u32, height: u32) -> Result<Self, ParseError> {
+        raw::from_monospace_bytes(width, height, bytes, 256)
+    }
+
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, ParseError> {
+        // PSF detection
+        #[cfg(feature = "bitfonts")]
+        {
+            if bytes.len() >= 4 {
+                let magic16 = u16::from_le_bytes([bytes[0], bytes[1]]);
+                if magic16 == psf::PSF1_MAGIC {
+                    return psf::parse_psf1(bytes);
+                }
+                let magic32 = u32::from_le_bytes(bytes[0..4].try_into().unwrap());
+                if magic32 == psf::PSF2_MAGIC {
+                    return psf::parse_psf2(bytes);
+                }
+            }
+        }
+        let utf8 = String::from_utf8(bytes.to_vec())?;
+        return parser::from_str(&utf8);
+    }
 
     pub fn from_reader<R: std::io::Read>(mut reader: R) -> Result<YaffFont, ParseError> {
-        let mut buffer = String::new();
-        reader.read_to_string(&mut buffer)?;
-        Self::from_str(&buffer)
+        let mut buf = Vec::new();
+        reader.read_to_end(&mut buf)?;
+        Self::from_bytes(&buf)
     }
 
     pub fn from_path<P: AsRef<Path>>(path: P) -> Result<Self, ParseError> {

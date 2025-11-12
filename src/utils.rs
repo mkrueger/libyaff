@@ -156,3 +156,72 @@ pub fn convert_codepoint_to_unicode_labels(font: &mut YaffFont) {
         }
     }
 }
+
+#[cfg(feature = "bitfonts")]
+use crate::ParseError;
+
+/// Helper to convert raw byte rows to a bitmap.
+/// Each row is packed MSB→LSB with `bytes_per_row` = ceil(width_bits / 8).
+/// The `data` slice should contain `height * bytes_per_row` bytes.
+#[cfg(feature = "bitfonts")]
+pub(crate) fn bytes_to_bitmap(data: &[u8], width_bits: usize, height: usize) -> Bitmap {
+    let bytes_per_row = (width_bits + 7) / 8;
+    let mut pixels: Vec<Vec<bool>> = Vec::with_capacity(height);
+
+    for row in 0..height {
+        let row_start = row * bytes_per_row;
+        let row_bytes = &data[row_start..row_start + bytes_per_row];
+        let mut row_vec = Vec::with_capacity(width_bits);
+        for bit in 0..width_bits {
+            let byte = row_bytes[bit / 8];
+            let mask = 0x80 >> (bit % 8);
+            row_vec.push(byte & mask != 0);
+        }
+        pixels.push(row_vec);
+    }
+    Bitmap {
+        pixels,
+        width: width_bits,
+        height,
+    }
+}
+
+/// Common helper to build a YaffFont from monospace bitmap data.
+/// Used by PSF and raw font loaders.
+#[cfg(feature = "bitfonts")]
+pub(crate) fn build_bitmap_font(
+    width: usize,
+    height: usize,
+    glyph_count: usize,
+    bytes_per_glyph: usize,
+    bitmap_data: &[u8],
+) -> Result<YaffFont, ParseError> {
+    let expected = glyph_count * bytes_per_glyph;
+    if bitmap_data.len() != expected {
+        return Err(ParseError::SemanticError {
+            line: 0,
+            message: format!(
+                "bitfont length mismatch: expected {expected} bytes of bitmap, got {}",
+                bitmap_data.len()
+            ),
+        });
+    }
+
+    let mut font = YaffFont::default();
+    font.bounding_box = Some((width as u32, height as u32));
+    font.cell_size = font.bounding_box;
+    font.raster_size = font.bounding_box;
+    font.max_width = Some(width as i32);
+
+    for g in 0..glyph_count {
+        let offset = g * bytes_per_glyph;
+        let slice = &bitmap_data[offset..offset + bytes_per_glyph];
+        let bitmap = bytes_to_bitmap(slice, width, height);
+        font.glyphs.push(GlyphDefinition {
+            labels: vec![Label::Codepoint(vec![g as u16])],
+            bitmap,
+            ..Default::default()
+        });
+    }
+    Ok(font)
+}

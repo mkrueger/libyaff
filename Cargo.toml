@@ -21,9 +21,10 @@ categories = ["graphics", "embedded"]
 readme = "README.md"
 
 [features]
-default = ["parsing", "encoding"]
+default = ["parsing", "encoding", "bitfonts"]
 parsing = ["regex"]
 encoding = []
+bitfonts = []
 
 [dependencies]
 regex = { version = "1", default-features = false, optional = true }

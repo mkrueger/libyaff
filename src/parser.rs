@@ -218,9 +218,7 @@ fn handle_deprecated_unquoted_tag(
     );
 
     if should_treat_as_tag {
-        log::warn!(
-            "Deprecated unquoted tag format detected: '{single_element}'"
-        );
+        log::warn!("Deprecated unquoted tag format detected: '{single_element}'");
         Some(Label::Tag(single_element.to_string()))
     } else {
         None
@@ -1149,9 +1147,7 @@ impl<'a> Decoder<'a> {
             let line_data = if line_data.len() < expected_width {
                 // We are okay with shorter lines, we pad with '.'
                 let line_num = error_line_num - lines_data.len() + i;
-                log::warn!(
-                    "Line {line_num}: Bitmap line is shorter than expected width."
-                );
+                log::warn!("Line {line_num}: Bitmap line is shorter than expected width.");
                 let mut line_data = line_data.to_string();
                 line_data.push_str(&".".repeat(expected_width - line_data.len()));
                 line_data

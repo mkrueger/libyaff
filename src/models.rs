@@ -67,6 +67,8 @@ pub struct YaffFont {
     pub glyphs: Vec<GlyphDefinition>,
 }
 
+unsafe impl Send for YaffFont {}
+
 /// A single glyph definition including bitmap data and typography metrics.
 ///
 /// Each glyph can have multiple labels (Unicode codepoints, legacy encodings, or tags)
@@ -112,6 +114,22 @@ pub struct Bitmap {
 impl Bitmap {
     pub fn is_empty(&self) -> bool {
         self.width == 0 && self.height == 0
+    }
+}
+
+impl std::fmt::Display for Bitmap {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.is_empty() {
+            return writeln!(f, "(empty bitmap)");
+        }
+
+        for row in &self.pixels {
+            for &pixel in row {
+                write!(f, "{}", if pixel { "*" } else { "." })?;
+            }
+            writeln!(f)?;
+        }
+        Ok(())
     }
 }
 
@@ -197,10 +215,7 @@ impl std::fmt::Display for ParseError {
                 write!(f, "Inconsistent glyph line length at line {line}")
             }
             ParseError::InvalidGlyphCharacter { line, char_found } => {
-                write!(
-                    f,
-                    "Invalid glyph character '{char_found}' at line {line}"
-                )
+                write!(f, "Invalid glyph character '{char_found}' at line {line}")
             }
         }
     }
@@ -218,6 +233,15 @@ impl std::error::Error for ParseError {
 impl From<std::io::Error> for ParseError {
     fn from(err: std::io::Error) -> Self {
         ParseError::Io(err)
+    }
+}
+
+impl From<std::string::FromUtf8Error> for ParseError {
+    fn from(err: std::string::FromUtf8Error) -> Self {
+        ParseError::InvalidSyntax {
+            line: 0,
+            message: format!("Invalid UTF-8 input: {err}"),
+        }
     }
 }
 
