@@ -19,6 +19,7 @@ pub struct YaffFont {
     pub ascent: Option<i32>,
     pub descent: Option<i32>,
     pub pixel_size: Option<i32>,
+    pub size: Option<i32>,
     pub leading: Option<i32>,
     pub raster_bounds: Option<(i32, i32, i32, i32)>,
     pub ink_bounds: Option<(i32, i32, i32, i32)>,

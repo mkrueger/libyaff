@@ -539,6 +539,7 @@ fn set_global_property(
         "ascent" => font.ascent = Some(parse_int_val(&value_str, line_num, &key)?),
         "descent" => font.descent = Some(parse_int_val(&value_str, line_num, &key)?),
         "pixel-size" => font.pixel_size = Some(parse_int_val(&value_str, line_num, &key)?),
+        "size" => font.size = Some(parse_int_val(&value_str, line_num, &key)?),
         "leading" => font.leading = Some(parse_int_val(&value_str, line_num, &key)?),
         "raster-bounds" => {
             font.raster_bounds = Some(parse_i32_quad_tuple_val(&value_str, line_num, &key)?)
