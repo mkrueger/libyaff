@@ -212,6 +212,7 @@ pub(crate) fn build_bitmap_font(
     font.cell_size = font.bounding_box;
     font.raster_size = font.bounding_box;
     font.max_width = Some(width as i32);
+    font.line_height = Some(height as i32);
 
     for g in 0..glyph_count {
         let offset = g * bytes_per_glyph;
